@@ -1,0 +1,283 @@
+version: '3.8'
+
+services:
+
+  eurekaserver:
+    image: catrinacorral/smartlogix-proyecto:eurekaserver-v1
+    ports:
+      - "8761:8761"
+    networks:
+      - spring-net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - spring-net
+
+  apigateway:
+    build: ./apigateway
+    image: catrinacorral/smartlogix-proyecto:apigateway-v1
+    ports:
+      - "8080:8080"
+    environment:
+      - EUREKA_SERVER_URL=http://eurekaserver:8761/eureka
+    depends_on:
+      - eurekaserver
+      - serviciousuarios
+      - servicioinventario
+      - serviciopedidos
+      - servicioenvios
+      - servicionotificaciones
+    networks:
+      - spring-net
+
+  serviciousuarios:
+    build: ./serviciousuarios
+    image: catrinacorral/smartlogix-proyecto:usuarios-v1
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-usuarios:5432/baseusuarios
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=1234
+      - EUREKA_SERVER_URL=http://eurekaserver:8761/eureka
+    depends_on:
+      db-usuarios:
+        condition: service_healthy
+      eurekaserver:
+        condition: service_started
+    networks:
+      - spring-net
+
+  servicioinventario:
+    build: ./servicioinventario
+    image: catrinacorral/smartlogix-proyecto:inventario-v1
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-inventario:5432/baseinventario
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=1234
+      - EUREKA_SERVER_URL=http://eurekaserver:8761/eureka
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      db-inventario:
+        condition: service_healthy
+      eurekaserver:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    networks:
+      - spring-net
+
+  serviciopedidos:
+    build: ./serviciopedidos
+    image: catrinacorral/smartlogix-proyecto:pedidos-v1
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-pedidos:5432/basepedidos
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=1234
+      - EUREKA_SERVER_URL=http://eurekaserver:8761/eureka
+    depends_on:
+      db-pedidos:
+        condition: service_healthy
+      eurekaserver:
+        condition: service_started
+      serviciousuarios:
+        condition: service_started
+      servicioinventario:
+        condition: service_started
+      servicioenvios:
+        condition: service_started
+      servicionotificaciones:
+        condition: service_started
+    networks:
+      - spring-net
+
+  servicioenvios:
+    image: catrinacorral/smartlogix-proyecto:envios-v1
+    ports:
+      - "8084:8084"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-envios:5432/baseenvios
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=1234
+      - EUREKA_SERVER_URL=http://eurekaserver:8761/eureka
+      - TRANSPORTISTA_SERVICE_URL=https://httpbin.org
+    depends_on:
+      db-envios:
+        condition: service_healthy
+      eurekaserver:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    networks:
+      - spring-net
+
+  servicionotificaciones:
+    build: ./servicionotificaciones
+    image: catrinacorral/smartlogix-proyecto:notificaciones-v1
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db-notificaciones:5432/basenotificaciones
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=1234
+      - EUREKA_SERVER_URL=http://eurekaserver:8761/eureka
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      db-notificaciones:
+        condition: service_healthy
+      eurekaserver:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      servicioinventario:
+        condition: service_started
+    networks:
+      - spring-net
+
+  db-usuarios:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: baseusuarios
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d baseusuarios"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - usuarios-data:/var/lib/postgresql/data
+    networks:
+      - spring-net
+
+  db-inventario:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: baseinventario
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d baseinventario"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - inventario-data:/var/lib/postgresql/data
+    networks:
+      - spring-net
+
+  db-pedidos:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: basepedidos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d basepedidos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pedidos-data:/var/lib/postgresql/data
+    networks:
+      - spring-net
+
+  db-envios:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: baseenvios
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d baseenvios"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - envios-data:/var/lib/postgresql/data
+    networks:
+      - spring-net
+
+  db-notificaciones:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: basenotificaciones
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5437:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d basenotificaciones"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - notificaciones-data:/var/lib/postgresql/data
+    networks:
+      - spring-net
+
+  db-sonarqube:
+    image: postgres:16-alpine
+    container_name: db-sonarqube
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar_password_1234
+      POSTGRES_DB: sonar
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - sonar-db-data:/var/lib/postgresql/data
+    networks:
+      - spring-net
+
+  sonarqube:
+    image: sonarqube:community
+    container_name: sonarqube
+    depends_on:
+      db-sonarqube:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar_password_1234
+      SONAR_JDBC_URL: jdbc:postgresql://db-sonarqube:5432/sonar
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonar-data:/opt/sonarqube/data
+      - sonar-extensions:/opt/sonarqube/extensions
+      - sonar-logs:/opt/sonarqube/logs
+    networks:
+      - spring-net
+
+networks:
+  spring-net:
+
+volumes:
+  usuarios-data:
+  inventario-data:
+  pedidos-data:
+  envios-data:
+  notificaciones-data:
+  sonar-db-data:
+  sonar-data:
+  sonar-extensions:
+  sonar-logs:
