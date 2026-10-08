@@ -1,288 +1,757 @@
-# SmartLogix Backend
+# 🚚 SmartLogix Backend
 
-Backend del sistema **SmartLogix**, una plataforma de gestión logística desarrollada con arquitectura de **microservicios** en Java con Spring Boot. El sistema permite gestionar usuarios, inventario y pedidos a través de un API Gateway centralizado con autenticación JWT.
+Backend de **SmartLogix**, plataforma de gestión logística desarrollada bajo una arquitectura de **microservicios con Spring Boot**.
 
----
+El sistema integra autenticación mediante JWT, descubrimiento de servicios con Eureka, enrutamiento mediante API Gateway, gestión de usuarios, inventario, pedidos, envíos y notificaciones.
 
-## Equipo de desarrollo
-
-| Integrante | Rama de trabajo |
-|---|---|
-| Anaís Aravena | `feature/servicioinventario-anais` |
-| Catrina Corral | `feature/apigateway-catrina` |
-| Fernanda Manríquez | `feature/serviciopedidos-fer` · `feature/docs-fer` |
+La comunicación entre los servicios se complementa con **OpenFeign** y **RabbitMQ**, mientras que cada servicio mantiene su propia base de datos PostgreSQL.
 
 ---
 
-## Arquitectura general
+## 🚀 Tecnologías
 
-El proyecto está compuesto por **4 microservicios independientes**, cada uno con su propia base de datos MySQL y que se comunican entre sí a través del API Gateway:
+- Java 21
+- Spring Boot 4.0.5
+- Spring Cloud 2025.1.1
+- Spring Security
+- Spring Cloud Gateway
+- Netflix Eureka
+- Spring Data JPA
+- OpenFeign
+- JWT / JJWT 0.12.6
+- PostgreSQL 16
+- RabbitMQ
+- Docker
+- Docker Compose
+- Maven
+- Lombok
+- SpringDoc OpenAPI / Swagger
+- SonarQube
 
+---
+
+## 🏗️ Arquitectura
+
+SmartLogix utiliza una arquitectura de microservicios donde cada módulo tiene una responsabilidad específica.
+
+```text
+                           FRONTEND
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │   API GATEWAY   │
+                    │      :8080      │
+                    │ JWT + Security  │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼───────────────┐
+              │              │               │
+              ▼              ▼               ▼
+        ┌──────────┐   ┌────────────┐   ┌────────────┐
+        │ Usuarios │   │ Inventario │   │  Pedidos   │
+        │  :8081   │   │   :8082    │   │   :8083    │
+        └──────────┘   └────────────┘   └────────────┘
+                                             │
+                              ┌──────────────┼──────────────┐
+                              ▼              ▼              ▼
+                         ┌──────────┐  ┌──────────────┐  ┌───────────────┐
+                         │ Envíos   │  │Notificaciones│  │   RabbitMQ    │
+                         │  :8084   │  │    :8085    │  │   Messaging   │
+                         └──────────┘  └──────────────┘  └───────────────┘
+
+                              ▲
+                              │
+                    ┌─────────────────┐
+                    │     Eureka      │
+                    │      :8761      │
+                    │ Service Discovery│
+                    └─────────────────┘
 ```
-Frontend (localhost:5173)
-        │
-        ▼
-┌─────────────────────┐
-│    API Gateway       │  :8080
-│  (Enrutamiento +     │
-│   Seguridad JWT)     │
-└──────┬──────┬───────┘
-       │      │      │
-       ▼      ▼      ▼
- Usuarios  Inventario  Pedidos
-  :8081     :8082      :8083
+
+---
+
+## 📦 Microservicios
+
+### 🔐 API Gateway — `apigateway`
+
+Puerto:
+
+```text
+8080
+```
+
+Es el punto de entrada principal de la aplicación.
+
+Responsabilidades:
+
+- Enrutamiento de solicitudes.
+- Validación de JWT.
+- Seguridad.
+- Autorización por roles.
+- Comunicación con Eureka.
+- Balanceo y descubrimiento de servicios.
+- Configuración CORS para el frontend.
+
+Rutas principales:
+
+```text
+/api/usuarios/**
+/api/inventario/**
+/api/pedidos/**
 ```
 
 ---
 
-## Microservicios
+### 🌐 Eureka Server — `eurekaserver`
 
-### 1. `apigateway` — Puerto 8080
-Punto de entrada único para todas las peticiones del frontend. Se encarga de:
-- Enrutar las solicitudes al microservicio correspondiente según el path.
-- Validar el token JWT en cada petición entrante mediante un filtro (`JwtAuthFilter`).
-- Gestionar CORS para el frontend en `localhost:5173`.
-- Aplicar autorización por roles (ADMIN, VENDEDOR, USER).
+Puerto:
 
-**Rutas configuradas:**
+```text
+8761
+```
 
-| Path | Redirige a |
-|---|---|
-| `/api/usuarios/**` | `serviciousuarios` :8081 |
-| `/api/inventario/**` | `servicioinventario` :8082 |
-| `/api/pedidos/**` | `serviciopedidos` :8083 |
-
-**Reglas de seguridad:**
-
-| Endpoint | Acceso |
-|---|---|
-| `POST /api/usuarios/login` | Público |
-| `POST /api/usuarios/registrar` | Público |
-| `DELETE /api/inventario/**` | Solo `ADMIN` |
-| `POST /api/inventario/**` | `ADMIN` o `VENDEDOR` |
-| `PUT /api/inventario/**` | `ADMIN` o `VENDEDOR` |
-| Cualquier otro | Autenticado |
+Se encarga del **Service Discovery**, permitiendo que los microservicios se registren y puedan localizarse dinámicamente.
 
 ---
 
-### 2. `serviciousuarios` — Puerto 8081
-Gestiona el registro, autenticación y consulta de usuarios. Genera los tokens JWT que se usan en todo el sistema.
+### 👤 Servicio de Usuarios — `serviciousuarios`
 
-**Endpoints:**
+Puerto:
 
-| Método | Ruta | Descripción | Acceso |
-|---|---|---|---|
-| `POST` | `/api/usuarios/registrar` | Registrar nuevo usuario | Público |
-| `POST` | `/api/usuarios/login` | Iniciar sesión y obtener JWT | Público |
-| `GET` | `/api/usuarios/{username}` | Obtener datos de un usuario | Autenticado |
+```text
+8081
+```
 
-**Modelo `Usuario`:**
+Responsable de:
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `id` | Long | Identificador único |
-| `username` | String | Nombre de usuario (único) |
-| `password` | String | Contraseña (encriptada con BCrypt, solo escritura) |
-| `correo` | String | Correo electrónico (único) |
-| `rol` | String | Rol del usuario (`ADMIN`, `VENDEDOR`, `USER`) |
+- Registro de usuarios.
+- Inicio de sesión.
+- Gestión de usuarios.
+- Generación de tokens JWT.
+- Validación de credenciales.
+- Gestión de roles.
 
-**Validaciones de registro:**
-- `username` obligatorio.
-- `password` con mínimo 8 caracteres.
-- `correo` obligatorio y debe ser de dominio `@gmail.com`, `@duocuc.cl` o `@hotmail.com`.
-- Si no se especifica rol, se asigna `USER` por defecto.
+Roles utilizados:
 
----
+```text
+ADMIN
+VENDEDOR
+USER
+```
 
-### 3. `servicioinventario` — Puerto 8082
-Gestiona el catálogo de productos del sistema.
+Endpoints principales:
 
-**Endpoints:**
-
-| Método | Ruta | Descripción | Acceso |
-|---|---|---|---|
-| `POST` | `/api/inventario` | Crear producto | `ADMIN` / `VENDEDOR` |
-| `GET` | `/api/inventario` | Listar todos los productos | Autenticado |
-| `GET` | `/api/inventario/{id}` | Obtener producto por ID | Autenticado |
-| `PUT` | `/api/inventario/{id}` | Actualizar producto | `ADMIN` / `VENDEDOR` |
-| `DELETE` | `/api/inventario/{id}` | Eliminar producto | Solo `ADMIN` |
-
-**Modelo `Producto`:**
-
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `id` | Long | Identificador único |
-| `nombre` | String | Nombre del producto (debe ser único) |
-| `descripcion` | String | Descripción del producto |
-| `cantidad` | int | Stock disponible |
-| `precio` | double | Precio unitario |
+```http
+POST /api/usuarios/registrar
+POST /api/usuarios/login
+GET  /api/usuarios/{username}
+```
 
 ---
 
-### 4. `serviciopedidos` — Puerto 8083
-Gestiona la creación y consulta de pedidos. Se comunica con `serviciousuarios` y `servicioinventario` usando **OpenFeign** para validar datos antes de crear un pedido.
+### 📦 Servicio de Inventario — `servicioinventario`
 
-**Endpoints:**
+Puerto:
 
-| Método | Ruta | Descripción | Acceso |
-|---|---|---|---|
-| `POST` | `/api/pedidos` | Crear pedido | Autenticado |
-| `GET` | `/api/pedidos` | Listar todos los pedidos | Autenticado |
-| `GET` | `/api/pedidos/{id}` | Obtener pedido por ID | Autenticado |
+```text
+8082
+```
 
-**Modelo `Pedido`:**
+Responsable de la gestión de productos e inventario.
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `id` | Long | Identificador único |
-| `username` | String | Username del usuario que realiza el pedido |
-| `productoId` | Long | ID del producto solicitado |
-| `cantidad` | Integer | Cantidad solicitada |
-| `estado` | String | Estado del pedido (`CREADO`) |
+Incluye:
 
-**Lógica de creación de pedido:**
-1. Verifica que el usuario existe consultando `serviciousuarios`.
-2. Verifica que el producto existe consultando `servicioinventario`.
-3. Verifica que hay stock suficiente.
-4. Guarda el pedido con estado `CREADO`.
+- Productos.
+- Bodegas.
+- Proveedores.
+- Stock por bodega.
+- Control de inventario.
+- Alertas de stock.
 
----
+Endpoints principales:
 
-## Seguridad — JWT
+```http
+POST   /api/inventario
+GET    /api/inventario
+GET    /api/inventario/{id}
+PUT    /api/inventario/{id}
+DELETE /api/inventario/{id}
+```
 
-Todos los microservicios comparten el mismo secreto JWT. El token se genera en el login e incluye:
-- `id` del usuario
-- `username`
-- `rol`
-- Expiración de **24 horas** (86400000 ms)
-
-El API Gateway intercepta cada request, valida el token y propaga la identidad del usuario al microservicio destino.
+Los endpoints de modificación están restringidos según el rol del usuario.
 
 ---
 
-## Bases de datos
+### 🛒 Servicio de Pedidos — `serviciopedidos`
 
-Cada microservicio tiene su propia base de datos MySQL:
+Puerto:
 
-| Microservicio | Base de datos |
-|---|---|
-| `serviciousuarios` | `baseusuarios` |
-| `servicioinventario` | `baseinventario` |
-| `serviciopedidos` | `basepedidos` |
+```text
+8083
+```
 
-Las tablas se crean y actualizan automáticamente con `spring.jpa.hibernate.ddl-auto=update`.
+Responsable de:
+
+- Creación de pedidos.
+- Consulta de pedidos.
+- Generación de boletas.
+- Validación de usuarios.
+- Validación de productos.
+- Validación de stock.
+- Comunicación con otros microservicios mediante OpenFeign.
+
+Endpoints principales:
+
+```http
+POST /api/pedidos
+GET  /api/pedidos
+GET  /api/pedidos/{id}
+```
+
+Durante la creación de un pedido se validan los datos necesarios antes de almacenarlo.
 
 ---
 
-## Tecnologías utilizadas
+### 🚚 Servicio de Envíos — `servicioenvios`
 
-| Tecnología | Versión | Uso |
-|---|---|---|
-| Java | 21 | Lenguaje principal |
-| Spring Boot | 4.0.5 | Framework base |
-| Spring Cloud Gateway | 2025.1.1 | API Gateway y enrutamiento |
-| Spring Security | — | Autenticación y autorización |
-| Spring Data JPA | — | Persistencia de datos |
-| OpenFeign | — | Comunicación entre microservicios |
-| jjwt (JJWT) | 0.12.6 | Generación y validación de tokens JWT |
-| MySQL | — | Base de datos relacional |
-| Lombok | — | Reducción de código boilerplate |
-| Maven | — | Gestión de dependencias y build |
+Puerto:
+
+```text
+8084
+```
+
+Responsable de la gestión de envíos.
+
+Incluye:
+
+- Registro de envíos.
+- Consulta de envíos.
+- Gestión de estados.
+- Comunicación con el servicio de transportista.
+- Patrones Factory para la creación de diferentes tipos de envío.
+
+Tipos contemplados:
+
+```text
+Envío normal
+Envío express
+```
 
 ---
 
-## Configuración y ejecución local
+### 🔔 Servicio de Notificaciones — `servicionotificaciones`
 
-### Prerrequisitos
+Puerto:
+
+```text
+8085
+```
+
+Responsable de las notificaciones generadas por eventos del sistema.
+
+Incluye:
+
+- Gestión de notificaciones.
+- Servicio de correo.
+- Consumo de eventos desde RabbitMQ.
+- Integración con eventos provenientes del inventario.
+
+---
+
+## 🔐 Seguridad
+
+La autenticación se implementa utilizando:
+
+```text
+Spring Security
+JWT
+```
+
+El proceso general es:
+
+```text
+Usuario
+   │
+   ▼
+Login
+   │
+   ▼
+Servicio de Usuarios
+   │
+   ▼
+JWT
+   │
+   ▼
+Frontend
+   │
+   ▼
+API Gateway
+   │
+   ▼
+Validación JWT
+   │
+   ▼
+Microservicio correspondiente
+```
+
+El token contiene información relacionada con:
+
+- ID del usuario.
+- Username.
+- Rol.
+- Expiración.
+
+La configuración del API Gateway aplica autorización basada en roles.
+
+---
+
+## 🔄 Comunicación entre microservicios
+
+El proyecto utiliza diferentes mecanismos de comunicación dependiendo de la necesidad.
+
+### OpenFeign
+
+Se utiliza para comunicación directa entre servicios.
+
+Ejemplo:
+
+```text
+serviciopedidos
+      │
+      ├── servicio usuarios
+      │
+      └── servicio inventario
+```
+
+Esto permite validar usuarios y productos antes de procesar pedidos.
+
+### RabbitMQ
+
+Se utiliza para comunicación basada en eventos.
+
+Actualmente participa principalmente en:
+
+```text
+Inventario
+     │
+     ▼
+ RabbitMQ
+     │
+     ▼
+Notificaciones
+```
+
+Esto permite desacoplar determinadas operaciones entre servicios.
+
+---
+
+## 🗄️ Bases de datos
+
+Cada microservicio utiliza su propia base de datos.
+
+```text
+serviciousuarios       → baseusuarios
+servicioinventario     → baseinventario
+serviciopedidos        → basepedidos
+servicioenvios         → baseenvios
+servicionotificaciones → basenotificaciones
+```
+
+Las bases de datos utilizadas en Docker corresponden a **PostgreSQL 16**.
+
+Los servicios utilizan JPA/Hibernate para la persistencia.
+
+---
+
+## 🐳 Docker Compose
+
+El proyecto incluye:
+
+```text
+docker-compose.yml
+```
+
+El archivo permite levantar la infraestructura completa del backend.
+
+Incluye:
+
+- Eureka Server
+- API Gateway
+- Servicio de Usuarios
+- Servicio de Inventario
+- Servicio de Pedidos
+- Servicio de Envíos
+- Servicio de Notificaciones
+- RabbitMQ
+- PostgreSQL para cada servicio
+- SonarQube
+
+Puertos principales:
+
+| Servicio | Puerto |
+|---|---:|
+| API Gateway | `8080` |
+| Usuarios | `8081` |
+| Inventario | `8082` |
+| Pedidos | `8083` |
+| Envíos | `8084` |
+| Notificaciones | `8085` |
+| Eureka | `8761` |
+| RabbitMQ | `5672` |
+| RabbitMQ Management | `15672` |
+| SonarQube | `9000` |
+
+Puertos externos de las bases PostgreSQL:
+
+| Base de datos | Puerto |
+|---|---:|
+| Usuarios | `5433` |
+| Inventario | `5434` |
+| Pedidos | `5435` |
+| Envíos | `5436` |
+| Notificaciones | `5437` |
+
+---
+
+## ⚙️ Requisitos
+
+Para ejecutar el proyecto localmente:
+
 - Java 21
 - Maven
-- MySQL corriendo en `localhost:3306`
+- Docker
+- Docker Compose
+- Git
 
-### 1. Crear las bases de datos en MySQL
+Para una ejecución mediante Docker, se recomienda utilizar Docker Desktop.
 
-```sql
-CREATE DATABASE baseusuarios;
-CREATE DATABASE baseinventario;
-CREATE DATABASE basepedidos;
-```
+---
 
-### 2. Configurar credenciales
+## ▶️ Ejecutar con Docker
 
-En cada `application.properties` puedes definir las credenciales mediante variables de entorno o directamente:
-
-```properties
-spring.datasource.username=TU_USUARIO
-spring.datasource.password=TU_PASSWORD
-```
-
-O usando variables de entorno:
-```
-SPRING_DATASOURCE_USERNAME=root
-SPRING_DATASOURCE_PASSWORD=tu_password
-```
-
-### 3. Levantar los microservicios
-
-Cada microservicio se levanta de forma independiente. Ejecutar en este orden:
+Clonar el repositorio:
 
 ```bash
-# 1. Servicio de Usuarios
-cd proyectoSmartLogix/serviciousuarios
-./mvnw spring-boot:run
+git clone https://github.com/CatrinaMedina/back-smartlogix-springboot.git
+```
 
-# 2. Servicio de Inventario
-cd proyectoSmartLogix/servicioinventario
-./mvnw spring-boot:run
+Entrar al proyecto:
 
-# 3. Servicio de Pedidos
-cd proyectoSmartLogix/serviciopedidos
-./mvnw spring-boot:run
+```bash
+cd back-smartlogix-springboot
+```
 
-# 4. API Gateway (último)
-cd proyectoSmartLogix/apigateway
+Levantar todos los servicios:
+
+```bash
+docker compose up --build
+```
+
+Para ejecutar en segundo plano:
+
+```bash
+docker compose up -d --build
+```
+
+Ver los contenedores:
+
+```bash
+docker compose ps
+```
+
+Ver logs:
+
+```bash
+docker compose logs -f
+```
+
+Detener los servicios:
+
+```bash
+docker compose down
+```
+
+Detener y eliminar volúmenes:
+
+```bash
+docker compose down -v
+```
+
+---
+
+## ▶️ Ejecutar microservicios individualmente
+
+Cada servicio es un proyecto Spring Boot independiente.
+
+### Windows
+
+```bash
+cd apigateway
+mvnw.cmd spring-boot:run
+```
+
+o:
+
+```bash
+cd serviciousuarios
+mvnw.cmd spring-boot:run
+```
+
+Los mismos comandos pueden utilizarse para:
+
+```text
+eurekaserver
+servicioinventario
+serviciopedidos
+servicioenvios
+servicionotificaciones
+```
+
+### Linux / macOS
+
+```bash
+cd apigateway
 ./mvnw spring-boot:run
 ```
 
-### 4. Verificar que todo esté corriendo
+---
 
-| Servicio | URL base |
-|---|---|
-| API Gateway | http://localhost:8080 |
-| Usuarios | http://localhost:8081 |
-| Inventario | http://localhost:8082 |
-| Pedidos | http://localhost:8083 |
+## 🧪 Testing
+
+Cada microservicio contiene pruebas dentro de:
+
+```text
+src/test/
+```
+
+Para ejecutar las pruebas de un servicio:
+
+```bash
+cd serviciousuarios
+mvnw.cmd test
+```
+
+En Linux/macOS:
+
+```bash
+./mvnw test
+```
+
+El mismo procedimiento se puede aplicar a los demás microservicios.
 
 ---
 
-## Repositorio
+## 📊 SonarQube
 
-**GitHub:** https://github.com/anaqueso/smartlogix_backend_aravena_corral_manriquez
+El proyecto incluye SonarQube mediante Docker Compose.
 
-### Ramas del repositorio
+Disponible en:
 
-| Rama | Descripción |
-|---|---|
-| `main` | Rama principal con el código integrado |
-| `feature/apigateway-catrina` | Desarrollo del API Gateway — **Catrina Corral** |
-| `feature/servicioinventario-anais` | Desarrollo del Servicio de Inventario — **Anaís Aravena** |
-| `feature/serviciopedidos-fer` | Desarrollo del Servicio de Pedidos — **Fernanda Manríquez** |
-| `feature/docs-fer` | Documentación del proyecto — **Fernanda Manríquez** |
-| `feature/apigateway` | Rama base del API Gateway |
-| `feature/serviciousuarios-email` | Rama del Servicio de Usuarios con validación de correo |
+```text
+http://localhost:9000
+```
 
----
+SonarQube permite realizar análisis de:
 
-## Próximas entregas
-
-### Servicio de Notificaciones (en desarrollo)
-Para la siguiente entrega se incorporará el microservicio `servicionotificaciones`, el cual permitirá enviar notificaciones automáticas a los usuarios ante eventos del sistema (creación de pedidos, cambios de estado, alertas de stock, etc.).
+- Calidad de código.
+- Bugs.
+- Vulnerabilidades.
+- Code smells.
+- Cobertura.
+- Deuda técnica.
 
 ---
 
-## Integrantes
+## 📁 Estructura del proyecto
 
-| Nombre | Área principal |
+```text
+back-smartlogix-springboot/
+│
+├── apigateway/
+│   ├── src/
+│   ├── Dockerfile
+│   └── pom.xml
+│
+├── eurekaserver/
+│   ├── src/
+│   ├── Dockerfile
+│   └── pom.xml
+│
+├── servicioenvios/
+│   ├── src/
+│   ├── baseenvios.sql
+│   ├── Dockerfile
+│   └── pom.xml
+│
+├── servicioinventario/
+│   ├── src/
+│   ├── baseinventario.sql
+│   ├── Dockerfile
+│   └── pom.xml
+│
+├── servicionotificaciones/
+│   ├── src/
+│   ├── basenotificaciones.sql
+│   ├── Dockerfile
+│   └── pom.xml
+│
+├── serviciopedidos/
+│   ├── src/
+│   ├── basepedidos.sql
+│   ├── Dockerfile
+│   └── pom.xml
+│
+├── serviciousuarios/
+│   ├── src/
+│   ├── baseusuarios.sql
+│   ├── Dockerfile
+│   └── pom.xml
+│
+├── docker-compose.yml
+├── pom.xml
+└── README.md
+```
+
+El `pom.xml` raíz funciona como proyecto Maven agregador e integra los siete módulos del backend. :contentReference[oaicite:1]{index=1}
+
+---
+
+## 🔌 Flujo principal
+
+### Autenticación
+
+```text
+Frontend
+   │
+   ▼
+API Gateway
+   │
+   ▼
+Servicio de Usuarios
+   │
+   ▼
+Validación de credenciales
+   │
+   ▼
+JWT
+   │
+   ▼
+Frontend
+```
+
+### Gestión de pedidos
+
+```text
+Frontend
+   │
+   ▼
+API Gateway
+   │
+   ▼
+Servicio de Pedidos
+   │
+   ├──► Servicio de Usuarios
+   │
+   ├──► Servicio de Inventario
+   │
+   └──► Servicio de Envíos
+```
+
+### Eventos y notificaciones
+
+```text
+Servicio de Inventario
+          │
+          ▼
+       RabbitMQ
+          │
+          ▼
+Servicio de Notificaciones
+```
+
+---
+
+## 🌐 URLs principales
+
+Con los servicios ejecutándose:
+
+```text
+API Gateway
+http://localhost:8080
+```
+
+```text
+Usuarios
+http://localhost:8081
+```
+
+```text
+Inventario
+http://localhost:8082
+```
+
+```text
+Pedidos
+http://localhost:8083
+```
+
+```text
+Envíos
+http://localhost:8084
+```
+
+```text
+Notificaciones
+http://localhost:8085
+```
+
+```text
+Eureka
+http://localhost:8761
+```
+
+```text
+RabbitMQ Management
+http://localhost:15672
+```
+
+```text
+SonarQube
+http://localhost:9000
+```
+
+---
+
+## 📚 Documentación API
+
+El API Gateway incorpora **SpringDoc OpenAPI / Swagger**.
+
+Una vez iniciado el Gateway, la documentación puede consultarse desde:
+
+```text
+http://localhost:8080/swagger-ui.html
+```
+
+y:
+
+```text
+http://localhost:8080/v3/api-docs
+```
+
+---
+
+## 👥 Equipo
+
+| Integrante | Área |
 |---|---|
-| **Anaís Aravena** | Servicio de Inventario (`servicioinventario`) |
-| **Catrina Corral** | API Gateway y Seguridad (`apigateway`) |
-| **Fernanda Manríquez** | Servicio de Pedidos y Documentación (`serviciopedidos`) |
+| Anaís Aravena | Servicio de Inventario |
+| Catrina Corral | API Gateway y Seguridad |
+| Fernanda Manríquez | Servicio de Pedidos y Documentación |
+
+---
+
+## 🔗 Repositorio
+
+GitHub:
+
+https://github.com/CatrinaMedina/back-smartlogix-springboot
